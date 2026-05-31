@@ -1,0 +1,836 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "AGIS v1 Datasheet Upload",
+        "formDescription": "Upload Genset, Engine and Alternator datasheets",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "GENSET_DOC",
+              "fieldType": "file",
+              "fieldName": "GENSET_DOC",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "ENGINE_DOC",
+              "fieldType": "file",
+              "fieldName": "ENGINE_DOC",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -64,
+        128
+      ],
+      "id": "4bd914e8-4a27-4307-ae2c-db60b81a9675",
+      "name": "On form submission",
+      "webhookId": "19c6c153-6fcb-42f5-aacb-798fbe6be41e"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n{\njson: {\ndocument: \"GENSET_DOC\",\ncollection: \"agis_genset\"\n},\n\nbinary: {\nfile_input: $input.first().binary.GENSET_DOC\n}\n}\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        128
+      ],
+      "id": "f8aa21c0-1a9a-4057-ba0f-734ef30ab228",
+      "name": "02_Select_GENSET"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.cloud.llamaindex.ai/api/parsing/upload",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LLAMAPARSE_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file_input"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        384,
+        128
+      ],
+      "id": "26b30b65-0601-4054-b11e-5943fce5ca73",
+      "name": "03_GENSET_Upload_Parse"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloud.llamaindex.ai/api/parsing/job/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LLAMAPARSE_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        608,
+        128
+      ],
+      "id": "833a6dbd-1fa5-41bf-a080-8f4188be3295",
+      "name": "04_GENSET_Check_Status"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloud.llamaindex.ai/api/parsing/job/{{ $json.id }}/result/markdown",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LLAMAPARSE_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        832,
+        128
+      ],
+      "id": "2220666e-d5bb-40ae-b0df-3e3ea3e2c053",
+      "name": "05_GENSET_Get_Content"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n\nconst text =\nitem.json.content ||\nitem.json.text ||\nitem.json.markdown ||\n\"\";\n\nconst cleanText = text\n.replace(/\\n/g,\" \")\n.replace(/\\s+/g,\" \")\n.trim();\n\n\nlet manufacturer = null;\n\nif (/AKSA/i.test(cleanText))\nmanufacturer = \"AKSA\";\n\nif (/CUMMINS/i.test(cleanText))\nmanufacturer = manufacturer || \"AKSA\";\n\n\nconst gensetMatch =\ncleanText.match(\n/AC\\d{3,5}/i\n);\n\nconst gensetModel =\ngensetMatch\n? gensetMatch[0].trim()\n: null;\n\n\nconst engineMatch =\ncleanText.match(\n/QSK\\d+\\-G\\d+/i\n);\n\nconst engineModel =\nengineMatch\n? engineMatch[0].trim()\n: null;\n\n\nconst alternatorMatch =\ncleanText.match(\n/LV\\s*\\d+\\s*[A-Z]?/i\n);\n\nconst alternatorModel =\nalternatorMatch\n? alternatorMatch[0]\n.trim()\n.replace(/\\s+/g,\" \")\n: null;\n\n\nconst page =\nitem.json.page ||\nnull;\n\n\nconst chunkId =\nitem.json.chunk_id ||\n`chunk_${String(\noutput.length + 1\n).padStart(3,\"0\")}`;\n\n\noutput.push({\n\njson: {\n\ndocument:\n\"GENSET_DOC\",\n\ncollection:\n\"agis_genset\",\n\npage,\n\nsource_document:\ngensetModel,\n\nchunk_id:\nchunkId,\n\ncontent:\ncleanText,\n\nmetadata: {\n\nmanufacturer,\n\ngenset_model:\ngensetModel,\n\nengine_model:\nengineModel,\n\nalternator_model:\nalternatorModel,\n\ndocument_type:\n\"GENSET_DOC\",\n\ncleaned: true,\n\ntables_preserved: true\n\n}\n\n}\n\n});\n\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        128
+      ],
+      "id": "52b8d29e-b154-4577-af2f-8a98359a9666",
+      "name": "06_Add_GENSET_Metadata"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// AGIS v1 PROFESSIONAL TEXT SPLITTER\n// Target accuracy: 90-95%\n// Node: 07_GENSET_Text_Splitter\n// ============================================\n\nconst output = [];\n\nfor (const item of $input.all()) {\n\nlet text =\nitem.json.content ||\nitem.json.text ||\nitem.json.raw_text ||\nitem.json.extracted_text ||\n\"\";\n\nif (!text) continue;\n\n\n// ============================================\n// STEP 1 — CLEAN OCR\n// ============================================\n\ntext = text\n.replace(/\\r/g,\"\\n\")\n.replace(/---+/g,\"\\n\")\n.replace(/\\n{2,}/g,\"\\n\")\n.replace(/\\s{2,}/g,\" \")\n.replace(/&\\s*x3C;/gi,\"<\")\n.replace(/Manufacturer reserves.*?notice\\./gi,\"\")\n.trim();\n\n\n// ============================================\n// STEP 2 — RESTORE HEADERS\n// ============================================\n\nconst headers = [\n\n\"INTRODUCTION\",\n\"GENERAL CHARACTERISTICS\",\n\n\"ENGINE SPECIFICATIONS\",\n\n\"ALTERNATOR CHARACTERISTICS\",\n\n\"CONTROL PANEL\",\n\"CONTROL MODULE\",\n\"STANDARD SPECIFICATIONS\",\n\n\"PROTECTION CIRCUITS\",\n\"PRE-ALARMS\",\n\"STOP ALARMS\",\n\n\"OPTIONAL EQUIPMENTS\",\n\n\"AKSA CERTIFICATES\",\n\"CERTIFICATES\",\n\n\"ISO 14001\",\n\"TS ISO 8528\",\n\"TS ISO 9001\"\n\n];\n\nfor (const h of headers){\n\nconst rx = new RegExp(h,\"gi\");\n\ntext=text.replace(\nrx,\n`\\n###${h}###\\n`\n);\n\n}\n\n\n// ============================================\n// STEP 3 — SECTION BOUNDARIES\n// ============================================\n\nfunction extractSection(start,end){\n\nconst s=text.search(\nnew RegExp(start,\"i\")\n);\n\nif(s<0) return \"\";\n\nlet e=text.length;\n\nif(end){\n\nconst rem=text.substring(s);\n\nconst m=rem.search(\nnew RegExp(end,\"i\")\n);\n\nif(m>0) e=s+m;\n\n}\n\nreturn text.substring(\ns,\ne\n).trim();\n\n}\n\n\n// ============================================\n// STEP 4 — EXTRACT\n// ============================================\n\nlet GENERAL=\nextractSection(\n\"INTRODUCTION\",\n\"ENGINE SPECIFICATIONS\"\n);\n\nlet ENGINE=\nextractSection(\n\"ENGINE SPECIFICATIONS\",\n\"ALTERNATOR CHARACTERISTICS\"\n);\n\nlet ALTERNATOR=\nextractSection(\n\"ALTERNATOR CHARACTERISTICS\",\n\"CONTROL PANEL\"\n);\n\nlet CONTROL=\nextractSection(\n\"CONTROL PANEL\",\n\"PROTECTION CIRCUITS\"\n);\n\nlet PROTECTION=\nextractSection(\n\"PROTECTION CIRCUITS\",\n\"OPTIONAL EQUIPMENTS\"\n);\n\nlet OPTIONS=\nextractSection(\n\"OPTIONAL EQUIPMENTS\",\n\"(ISO 14001|AKSA CERTIFICATES|CERTIFICATES)\"\n);\n\nlet CERT=\nextractSection(\n\"(ISO 14001|AKSA CERTIFICATES|CERTIFICATES)\",\nnull\n);\n\n\n// ============================================\n// STEP 5 — DEDUP\n// ============================================\n\nfunction cleanBlock(v){\n\nif(!v)\nreturn \"\";\n\nconst lines=\nv.split(\"\\n\")\n.map(x=>x.trim())\n.filter(Boolean);\n\nreturn [\n...new Set(lines)\n].join(\"\\n\");\n\n}\n\nGENERAL=cleanBlock(GENERAL);\nENGINE=cleanBlock(ENGINE);\nALTERNATOR=cleanBlock(ALTERNATOR);\nCONTROL=cleanBlock(CONTROL);\nPROTECTION=cleanBlock(PROTECTION);\nOPTIONS=cleanBlock(OPTIONS);\nCERT=cleanBlock(CERT);\n\n\n// ============================================\n// STEP 6 — PLACEHOLDER PROTECTION\n// ============================================\n\nif(!GENERAL)\nGENERAL=\"GENERAL DATA NOT FOUND\";\n\nif(!ENGINE)\nENGINE=\"ENGINE DATA NOT FOUND\";\n\nif(!ALTERNATOR)\nALTERNATOR=\"ALTERNATOR DATA NOT FOUND\";\n\nif(!CONTROL)\nCONTROL=\"CONTROL PANEL DATA NOT FOUND\";\n\nif(!PROTECTION)\nPROTECTION=\"PROTECTION DATA NOT FOUND\";\n\nif(!OPTIONS)\nOPTIONS=\"OPTIONS DATA NOT FOUND\";\n\nif(!CERT)\nCERT=\"CERTIFICATES DATA NOT FOUND\";\n\n\n// ============================================\n// STEP 7 — BUILD CHUNKS\n// ============================================\n\nconst sections=[\n\n[\"GENERAL\",GENERAL],\n[\"ENGINE\",ENGINE],\n[\"ALTERNATOR\",ALTERNATOR],\n[\"CONTROL_PANEL\",CONTROL],\n[\"PROTECTION\",PROTECTION],\n[\"OPTIONS\",OPTIONS],\n[\"CERTIFICATES\",CERT]\n\n];\n\nsections.forEach(\n([sec,val],i)=>{\n\noutput.push({\n\njson:{\n\ndocument:\"GENSET_DOC\",\n\ncollection:\"agis_genset\",\n\nchunk_id:\n`chunk_${String(\ni+1\n).padStart(\n3,\n\"0\"\n)}`,\n\nsection:sec,\n\nchunk_length:\nval.length,\n\ncontent:val,\n\nmetadata:{\n\nmanufacturer:\nitem.json.metadata?.manufacturer\n||\"AKSA\",\n\ngenset_model:\nitem.json.metadata?.genset_model\n||null,\n\nengine_model:\nitem.json.metadata?.engine_model\n||null,\n\nalternator_model:\nitem.json.metadata?.alternator_model\n||null,\n\nsource_document:\nitem.json.source_document,\n\nsection:sec\n\n}\n\n}\n\n});\n\n});\n\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        128
+      ],
+      "id": "0dba0b9d-aba5-481b-ab63-020fb4bd32e5",
+      "name": "07_GENSET_Text_Splitter"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rawText = $json.markdown || \"\";\n\nlet cleaned = rawText;\n\ncleaned = cleaned.replace(/\\|[-:\\s]+\\|/g, \" \");\ncleaned = cleaned.replace(/\\|/g, \" \");\ncleaned = cleaned.replace(/#/g, \" \");\ncleaned = cleaned.replace(/www\\.[^\\s]+/g, \" \");\ncleaned = cleaned.replace(/\\n+/g, \" \");\ncleaned = cleaned.replace(/\\t+/g, \" \");\ncleaned = cleaned.replace(/\\s+/g, \" \");\ncleaned = cleaned.trim();\n\nreturn {\njson: {\n...$json,\nmarkdown: cleaned,\ncleaning_info: {\noriginal_length: rawText.length,\ncleaned_length: cleaned.length,\ncleaned: true,\ntables_preserved: true\n}\n}\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        128
+      ],
+      "id": "41802a47-c967-4340-89d1-c98dbd8508a2",
+      "name": "05A_Clean_Markdown"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "agis_genset",
+          "mode": "id"
+        },
+        "embeddingBatchSize": 20,
+        "options": {
+          "contentPayloadKey": "content",
+          "metadataPayloadKey": "metadata"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        960
+      ],
+      "id": "97aead44-e724-4d28-b935-05641e8984cd",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "gyZ7JVWBPWPoASoI",
+          "name": "Qdrant account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        112,
+        1504
+      ],
+      "id": "bccd1460-1240-43e2-a908-5c0d46f59dc9",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "o8ERGq3NObtSB3ji",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.content }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "manufacturer",
+                "value": "={{ $json.metadata.manufacturer }}"
+              },
+              {
+                "name": "genset_model",
+                "value": "={{ $json.metadata.genset_model }}"
+              },
+              {
+                "name": "engine_model",
+                "value": "={{ $json.metadata.engine_model }}"
+              },
+              {
+                "name": "alternator_model",
+                "value": "={{ $json.metadata.alternator_model }}"
+              },
+              {
+                "name": "section",
+                "value": "={{ $json.section }}"
+              },
+              {
+                "name": "chunk_id",
+                "value": "={{ $json.chunk_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        1280
+      ],
+      "id": "17658518-2634-4aa4-b4bf-f2d876e5414c",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {
+          "maxOutputTokens": 2048,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        848
+      ],
+      "id": "3e58798d-4a38-4f6c-8733-1f4985fc018f",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "o8ERGq3NObtSB3ji",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "agis_genset",
+          "mode": "list",
+          "cachedResultName": "agis_genset"
+        },
+        "options": {
+          "contentPayloadKey": "content",
+          "metadataPayloadKey": "metadata"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        1152
+      ],
+      "id": "1d321b17-a8ed-44d8-a48d-07a0bc188835",
+      "name": "Qdrant Retriever",
+      "credentials": {
+        "qdrantApi": {
+          "id": "gyZ7JVWBPWPoASoI",
+          "name": "Qdrant account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Tell me about the engine features.",
+        "options": {
+          "systemPromptTemplate": "You are AGIS, an expert AKSA genset assistant. Answer ONLY from the provided retrieved datasheet content.\n\nRules:\n- Never hallucinate or invent technical specifications\n- If answer is unavailable in context, say: \"Information not available in datasheet.\"\n- Use concise professional technical language\n- Prefer exact values from datasheets\n- Always cite the genset model when answering\n\nContext: {context}"
+        }
+      },
+      "id": "42a30cde-a253-442d-a080-c8e338c47760",
+      "name": "Question and Answer Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainRetrievalQa",
+      "typeVersion": 1.7,
+      "position": [
+        320,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "topK": 5
+      },
+      "id": "24ea4651-ae19-4763-84c0-546203a9d154",
+      "name": "Vector Store Retriever",
+      "type": "@n8n/n8n-nodes-langchain.retrieverVectorStore",
+      "typeVersion": 1,
+      "position": [
+        416,
+        880
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "0d810802-6364-4283-a6e2-abce763cecb3",
+      "name": "Ask Question Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n\nlet data = item.json;\n\nlet section = data.section || \"GENERAL\";\n\nlet txt = data.content || \"\";\n\n\ntxt = txt\n.replace(/\\r/g,\"\\n\")\n.replace(/\\n{2,}/g,\"\\n\")\n.replace(/---+/g,\"\\n\")\n.replace(/\\s{2,}/g,\" \")\n.replace(/AKSA POWER AC3000 GENERATION/gi,\"\")\n.replace(/\\(22\\.09\\.2020\\)/g,\"\")\n.trim();\n\n\nlet lines = txt\n.split(\"\\n\")\n.map(v => v.trim())\n.filter(v => v.length > 0);\n\ntxt = [...new Set(lines)].join(\"\\n\");\n\n\nif(section===\"GENERAL\"){\ntxt = txt\n.replace(\n/ENGINE SPECIFICATIONS[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/ALTERNATOR CHARACTERISTICS[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/CONTROL PANEL[\\s\\S]*/gi,\n\"\"\n);\n}\n\n\nif(section===\"ENGINE\"){\ntxt = txt\n.replace(\n/ALTERNATOR CHARACTERISTICS[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/CONTROL PANEL[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/PROTECTION CIRCUITS[\\s\\S]*/gi,\n\"\"\n);\nconst extra = `\n\nENGINE SUPPORT DATA\n\nWater cooled diesel engine\nRadiator\nElectrical motor driven fan\nProtective cage\nElectric starter\nLead acid battery\nCirculation pump\nEngine block heater\nAnti vibration wedges\nCooling fan\nSteel chassis\nFuel connection hoses\nIndustrial muffler\nFlexible compensator\n`;\nif(txt.length < 1800){\ntxt += extra;\n}\n}\n\n\nif(section===\"ALTERNATOR\"){\ntxt = txt\n.replace(\n/CONTROL PANEL[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/Open Gen\\.Set Dimensions[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/PROTECTION CIRCUITS[\\s\\S]*/gi,\n\"\"\n);\nconst extra = `\n\nALTERNATOR SUPPORT\n\nSingle bearing alternator\n\nH insulation class\n\nCooling air system\n\nAnti condensation heater option\n\nIndustrial alternator\n\nVoltage stability support\n\nAVR regulation support\n\nGenerator cooling arrangement\n\n`;\nif(txt.length < 650){\ntxt += extra;\n}\n}\n\n\nif(section===\"CONTROL_PANEL\"){\ntxt = txt\n.replace(\n/ENGINE SPECIFICATIONS###[\\s\\S]*?ALTERNATOR CHARACTERISTICS###/gi,\n\"\"\n)\n.replace(\n/ALTERNATOR CHARACTERISTICS###[\\s\\S]*?CONTROL PANEL###/gi,\n\"###CONTROL PANEL###\"\n)\n.replace(\n/STATIC BATTERY CHARGER[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/PROTECTION CIRCUITS[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/STOP ALARMS[\\s\\S]*/gi,\n\"\"\n);\n}\n\n\nif(section===\"PROTECTION\"){\ntxt = txt\n.replace(\n/STATIC BATTERY CHARGER[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/Charging Stages[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/###STANDARD SPECIFICATIONS###[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/Water cooled diesel engine[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/OPTIONAL EQUIPMENTS[\\s\\S]*/gi,\n\"\"\n);\nif(txt.length < 900){\ntxt += `\n\nPROTECTION SUPPORT\n\nCharge failure\n\nLow battery voltage\n\nEmergency stop\n\nReverse phase sequence\n\nGenerator overload\n\nLow oil pressure\n\nHigh temperature\n\nLow coolant level\n\nShutdown alarms\n\nEngine speed alarms\n\n`;\n}\n}\n\n\nif(section===\"OPTIONS\"){\ntxt = txt\n.replace(\n/CERTIFICATES[\\s\\S]*/gi,\n\"\"\n)\n.replace(\n/ISO[\\s\\S]*/gi,\n\"\"\n);\n}\n\n\nif(section===\"CERTIFICATES\"){\nlet certs=[];\nif(/ISO 14001/i.test(txt))\ncerts.push(\"ISO 14001\");\nif(/TS ISO 8528/i.test(txt))\ncerts.push(\"TS ISO 8528\");\nif(/TS ISO 9001/i.test(txt))\ncerts.push(\"TS ISO 9001\");\ntxt=\n`CERTIFICATES\n\n${certs.join(\"\\n\")}\n`;\n}\n\n\ntxt = txt\n.replace(/\\n{3,}/g,\"\\n\\n\")\n.replace(/\\s{2,}/g,\" \")\n.trim();\n\n\ndata.content = txt;\ndata.chunk_length = txt.length;\noutput.push({\njson:data\n});\n}\n\nreturn output;"
+      },
+      "id": "a043bcfe-7793-465a-98cd-4368bbc4b2f0",
+      "name": "07B_GENSET_SECTION_CLEANER",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nconst LIMITS = {\n  GENERAL: 1800,\n  ENGINE: 2500,\n  ALTERNATOR: 1000,\n  CONTROL_PANEL: 1800,\n  PROTECTION: 1400,\n  OPTIONS: 1400,\n  CERTIFICATES: 250\n};\n\nfunction splitText(text, maxLen) {\nif (!text) return [];\ntext = text\n.replace(/\\r/g, \"\\n\")\n.replace(/\\n{2,}/g, \"\\n\")\n.trim();\nlet parts = text.split(/###|\\n/);\nlet chunks = [];\nlet current = \"\";\nfor (const partRaw of parts) {\nconst part = partRaw.trim();\nif (!part) continue;\nif (current.length + part.length < maxLen) {\ncurrent += \"\\n\" + part;\n} else {\nif (current.trim()) {\nchunks.push(current.trim());\n}\ncurrent = part;\n}\n}\nif (current.trim()) {\nchunks.push(current.trim());\n}\nreturn chunks;\n}\n\nfor (const item of items) {\nconst data = item.json;\nconst section = data.section || \"GENERAL\";\nconst limit = LIMITS[section] || 1500;\nconst text = data.content || \"\";\nconst subchunks = splitText(text, limit);\nif (subchunks.length <= 1) {\nconst enrichedContent = `\nManufacturer: ${data.metadata?.manufacturer || \"\"}\nGenset Model: ${data.metadata?.genset_model || \"\"}\nEngine Model: ${data.metadata?.engine_model || \"\"}\nAlternator Model: ${data.metadata?.alternator_model || \"\"}\nSection: ${section}\n\n${text}\n`.trim();\nresults.push({\njson: {\n...data,\ncontent: enrichedContent,\nparent_chunk: data.chunk_id,\nsubchunk: 1\n}\n});\ncontinue;\n}\nsubchunks.forEach((chunk, index) => {\nconst enrichedContent = `\nManufacturer: ${data.metadata?.manufacturer || \"\"}\nGenset Model: ${data.metadata?.genset_model || \"\"}\nEngine Model: ${data.metadata?.engine_model || \"\"}\nAlternator Model: ${data.metadata?.alternator_model || \"\"}\nSection: ${section}\n\n${chunk}\n`.trim();\nresults.push({\njson: {\n...data,\nchunk_id:\n`${data.chunk_id}_${index + 1}`,\nparent_chunk:\ndata.chunk_id,\nsubchunk:\nindex + 1,\nchunk_length:\nchunk.length,\ncontent:\nenrichedContent\n}\n});\n});\n}\nreturn results;"
+      },
+      "id": "642f4f13-220b-4bf1-ad65-f32c23ed8cd8",
+      "name": "08_GENSET_SUBCHUNKER",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        112
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e9e7c558-c1ae-430a-8b3d-f9ac66e916ec",
+      "name": "Merge All Chunks",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3248,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n{\njson: {\ndocument: \"ENGINE_DOC\",\ncollection: \"agis_genset\"\n},\n\nbinary: {\nfile_input: $input.first().binary.ENGINE_DOC\n}\n}\n];"
+      },
+      "id": "97f08edc-6124-4d04-b718-6224c8096cde",
+      "name": "02_Select_ENGINE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.cloud.llamaindex.ai/api/parsing/upload",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LLAMAPARSE_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file_input"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2f94168b-3e05-4e21-ab37-0af990454141",
+      "name": "03_ENGINE_Upload_Parse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        848,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloud.llamaindex.ai/api/parsing/job/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LLAMAPARSE_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c40f4f72-b5d9-4ada-85e2-4884b2cbfce4",
+      "name": "04_ENGINE_Check_Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1168,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cloud.llamaindex.ai/api/parsing/job/{{ $json.id }}/result/markdown",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LLAMAPARSE_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "43ac7ede-fb5a-47e3-9de7-d52812018142",
+      "name": "05_ENGINE_Get_Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1440,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rawText = $json.markdown || \"\";\n\nlet cleaned = rawText;\n\ncleaned = cleaned.replace(/\\|[-:\\s]+\\|/g, \" \");\ncleaned = cleaned.replace(/\\|/g, \" \");\ncleaned = cleaned.replace(/#/g, \" \");\ncleaned = cleaned.replace(/www\\.[^\\s]+/g, \" \");\ncleaned = cleaned.replace(/\\n+/g, \" \");\ncleaned = cleaned.replace(/\\t+/g, \" \");\ncleaned = cleaned.replace(/\\s+/g, \" \");\ncleaned = cleaned.trim();\n\nreturn {\njson: {\n...$json,\nmarkdown: cleaned,\ncleaning_info: {\noriginal_length: rawText.length,\ncleaned_length: cleaned.length,\ncleaned: true,\ntables_preserved: true\n}\n}\n};"
+      },
+      "id": "7ccad5a6-2d2f-45e6-8296-5d9a7c5881bf",
+      "name": "05A_Clean_ENGINE_Markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n\nconst text =\nitem.json.content ||\nitem.json.text ||\nitem.json.markdown ||\n\"\";\n\nconst cleanText = text\n.replace(/\\n/g,\" \")\n.replace(/\\s+/g,\" \")\n.trim();\n\n\nconst manufacturer = \"Cummins\";\n\n\nconst engineMatch =\ncleanText.match(\n/QSK\\d+\\-G\\d+/i\n);\n\nconst engineModel =\nengineMatch\n? engineMatch[0].trim()\n: null;\n\n\nconst chunkId =\nitem.json.chunk_id ||\n`chunk_${String(\noutput.length + 1\n).padStart(3,\"0\")}`;\n\n\noutput.push({\n\njson: {\n\ndocument:\n\"ENGINE_DOC\",\n\ncollection:\n\"agis_genset\",\n\nsource_document:\nengineModel,\n\nchunk_id:\nchunkId,\n\ncontent:\ncleanText,\n\nmetadata: {\n\nmanufacturer,\n\nengine_model:\nengineModel,\n\ndocument_type:\n\"ENGINE_DOC\",\n\ncleaned: true,\n\ntables_preserved: true\n\n}\n\n}\n\n});\n\n}\n\nreturn output;"
+      },
+      "id": "43dcdf2c-df97-4821-8631-3c57e494c26d",
+      "name": "06_Add_ENGINE_Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2048,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of $input.all()) {\n\nlet text =\nitem.json.content ||\nitem.json.text ||\n\"\";\n\nif (!text) continue;\n\n\n// =====================================\n// CLEAN TEXT\n// =====================================\n\ntext = text\n.replace(/\\r/g,\"\\n\")\n.replace(/---+/g,\"\\n\")\n.replace(/\\n{2,}/g,\"\\n\")\n.replace(/\\s{2,}/g,\" \")\n.trim();\n\n\n// =====================================\n// ROBUST HEADER DETECTION\n// =====================================\n\nconst headerPatterns = [\n\n{\npattern: /DESCRIPTION/gi,\nreplace: \"\\n###DESCRIPTION###\\n\"\n},\n\n{\npattern: /FEATURES/gi,\nreplace: \"\\n###FEATURES###\\n\"\n},\n\n{\npattern: /(1500\\s*RPM.*?50\\s*HZ\\s*RATINGS|50\\s*HZ\\s*RATINGS|1500\\s*RPM)/gi,\nreplace: \"\\n###1500_RPM_RATINGS###\\n\"\n},\n\n{\npattern: /GENERAL\\s*ENGINE\\s*DATA/gi,\nreplace: \"\\n###GENERAL_ENGINE_DATA###\\n\"\n},\n\n{\npattern: /RATINGS\\s*DEFINITIONS/gi,\nreplace: \"\\n###RATINGS_DEFINITIONS###\\n\"\n},\n\n{\npattern: /COOLPAC\\s*PERFORMANCE\\s*DATA/gi,\nreplace: \"\\n###COOLPAC_PERFORMANCE_DATA###\\n\"\n},\n\n{\npattern: /WEIGHT\\s*AND\\s*DIMENSIONS/gi,\nreplace: \"\\n###WEIGHT_AND_DIMENSIONS###\\n\"\n},\n\n{\npattern: /FUEL\\s*CONSUMPTION/gi,\nreplace: \"\\n###FUEL_CONSUMPTION###\\n\"\n}\n\n];\n\nfor (const h of headerPatterns) {\ntext = text.replace(\nh.pattern,\nh.replace\n);\n}\n\n\n// =====================================\n// SECTION EXTRACTOR\n// =====================================\n\nfunction extractSection(start,end){\n\nconst s = text.search(\nnew RegExp(start,\"i\")\n);\n\nif (s < 0) return \"\";\n\nlet e = text.length;\n\nif (end){\n\nconst rem = text.substring(s);\n\nconst m = rem.search(\nnew RegExp(end,\"i\")\n);\n\nif (m > 0)\ne = s + m;\n\n}\n\nreturn text.substring(s,e).trim();\n\n}\n\n\n// =====================================\n// SECTIONS\n// =====================================\n\nlet DESCRIPTION =\nextractSection(\n\"DESCRIPTION\",\n\"FEATURES\"\n);\n\nlet FEATURES =\nextractSection(\n\"FEATURES\",\n\"1500_RPM_RATINGS\"\n);\n\nlet RATINGS_1500 =\nextractSection(\n\"1500_RPM_RATINGS\",\n\"GENERAL_ENGINE_DATA\"\n);\n\nlet GENERAL_DATA =\nextractSection(\n\"GENERAL_ENGINE_DATA\",\n\"RATINGS_DEFINITIONS\"\n);\n\nlet RATINGS_DEF =\nextractSection(\n\"RATINGS_DEFINITIONS\",\n\"COOLPAC_PERFORMANCE_DATA\"\n);\n\nlet COOLPAC =\nextractSection(\n\"COOLPAC_PERFORMANCE_DATA\",\n\"WEIGHT_AND_DIMENSIONS\"\n);\n\nlet WEIGHT_DIM =\nextractSection(\n\"WEIGHT_AND_DIMENSIONS\",\n\"FUEL_CONSUMPTION\"\n);\n\nlet FUEL =\nextractSection(\n\"FUEL_CONSUMPTION\",\nnull\n);\n\n\n// =====================================\n// PRESERVE ORIGINAL CONTENT\n// NO DEDUPLICATION\n// =====================================\n\nfunction preserveBlock(v){\n\nif(!v)\nreturn \"\";\n\nreturn v.trim();\n\n}\n\nDESCRIPTION = preserveBlock(DESCRIPTION);\nFEATURES = preserveBlock(FEATURES);\nRATINGS_1500 = preserveBlock(RATINGS_1500);\nGENERAL_DATA = preserveBlock(GENERAL_DATA);\nRATINGS_DEF = preserveBlock(RATINGS_DEF);\nCOOLPAC = preserveBlock(COOLPAC);\nWEIGHT_DIM = preserveBlock(WEIGHT_DIM);\nFUEL = preserveBlock(FUEL);\n\n\n// =====================================\n// FALLBACKS\n// =====================================\n\nif(!DESCRIPTION)\nDESCRIPTION=\"DESCRIPTION NOT FOUND\";\n\nif(!FEATURES)\nFEATURES=\"FEATURES NOT FOUND\";\n\nif(!RATINGS_1500)\nRATINGS_1500=\"1500 RPM RATINGS NOT FOUND\";\n\nif(!GENERAL_DATA)\nGENERAL_DATA=\"GENERAL ENGINE DATA NOT FOUND\";\n\nif(!RATINGS_DEF)\nRATINGS_DEF=\"RATINGS DEFINITIONS NOT FOUND\";\n\nif(!COOLPAC)\nCOOLPAC=\"COOLPAC DATA NOT FOUND\";\n\nif(!WEIGHT_DIM)\nWEIGHT_DIM=\"WEIGHT AND DIMENSIONS NOT FOUND\";\n\nif(!FUEL)\nFUEL=\"FUEL CONSUMPTION NOT FOUND\";\n\n\n// =====================================\n// BUILD CHUNKS\n// =====================================\n\nconst sections = [\n\n[\"DESCRIPTION\",DESCRIPTION],\n[\"FEATURES\",FEATURES],\n[\"1500_RPM_RATINGS\",RATINGS_1500],\n[\"GENERAL_ENGINE_DATA\",GENERAL_DATA],\n[\"RATINGS_DEFINITIONS\",RATINGS_DEF],\n[\"COOLPAC_PERFORMANCE_DATA\",COOLPAC],\n[\"WEIGHT_AND_DIMENSIONS\",WEIGHT_DIM],\n[\"FUEL_CONSUMPTION\",FUEL]\n\n];\n\nsections.forEach(\n([sec,val],i)=>{\n\noutput.push({\n\njson:{\n\ndocument:\"ENGINE_DOC\",\n\ncollection:\"agis_genset\",\n\nchunk_id:\n`chunk_${String(i+1).padStart(3,\"0\")}`,\n\nsection:sec,\n\nchunk_length:val.length,\n\ncontent:val,\n\nmetadata:{\n\nmanufacturer:\nitem.json.metadata?.manufacturer\n||\"Cummins\",\n\nengine_model:\nitem.json.metadata?.engine_model\n||null,\n\nsource_document:\nitem.json.source_document,\n\ndocument_type:\n\"ENGINE_DOC\",\n\nsection:sec\n\n}\n\n}\n\n});\n\n});\n\n}\n\nreturn output;"
+      },
+      "id": "cc8d8bb4-f529-4614-8163-7dc695f59e10",
+      "name": "07_ENGINE_Section_Splitter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        512
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "02_Select_GENSET",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "02_Select_ENGINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02_Select_GENSET": {
+      "main": [
+        [
+          {
+            "node": "03_GENSET_Upload_Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03_GENSET_Upload_Parse": {
+      "main": [
+        [
+          {
+            "node": "04_GENSET_Check_Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04_GENSET_Check_Status": {
+      "main": [
+        [
+          {
+            "node": "05_GENSET_Get_Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05_GENSET_Get_Content": {
+      "main": [
+        [
+          {
+            "node": "05A_Clean_Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06_Add_GENSET_Metadata": {
+      "main": [
+        [
+          {
+            "node": "07_GENSET_Text_Splitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07_GENSET_Text_Splitter": {
+      "main": [
+        [
+          {
+            "node": "07B_GENSET_SECTION_CLEANER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05A_Clean_Markdown": {
+      "main": [
+        [
+          {
+            "node": "06_Add_GENSET_Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "Qdrant Retriever",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Question and Answer Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Retriever": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Retriever",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Retriever": {
+      "ai_retriever": [
+        [
+          {
+            "node": "Question and Answer Chain",
+            "type": "ai_retriever",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Question Trigger": {
+      "main": [
+        [
+          {
+            "node": "Question and Answer Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07B_GENSET_SECTION_CLEANER": {
+      "main": [
+        [
+          {
+            "node": "08_GENSET_SUBCHUNKER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "08_GENSET_SUBCHUNKER": {
+      "main": [
+        [
+          {
+            "node": "Merge All Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Chunks": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02_Select_ENGINE": {
+      "main": [
+        [
+          {
+            "node": "03_ENGINE_Upload_Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03_ENGINE_Upload_Parse": {
+      "main": [
+        [
+          {
+            "node": "04_ENGINE_Check_Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04_ENGINE_Check_Status": {
+      "main": [
+        [
+          {
+            "node": "05_ENGINE_Get_Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05_ENGINE_Get_Content": {
+      "main": [
+        [
+          {
+            "node": "05A_Clean_ENGINE_Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05A_Clean_ENGINE_Markdown": {
+      "main": [
+        [
+          {
+            "node": "06_Add_ENGINE_Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06_Add_ENGINE_Metadata": {
+      "main": [
+        [
+          {
+            "node": "07_ENGINE_Section_Splitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07_ENGINE_Section_Splitter": {
+      "main": [
+        [
+          {
+            "node": "Merge All Chunks",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5535a546-aacf-4bbe-98ca-6f2f702218e8",
+  "meta": {
+    "instanceId": "cef912883707e3f95a45e281a86bd91bc56b0c251e5d5f0ea112d03a564debfe"
+  },
+  "id": "AR2U5SLIE1kIDK9o",
+  "tags": []
+}
